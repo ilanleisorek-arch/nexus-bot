@@ -1,7 +1,8 @@
 """
-Nexus Trading Bot v4 — Alpaca Paper Trading
+Nexus Trading Bot v5 — Alpaca Paper Trading
 100 tickers · 60s scans · Aggressive Mode
-Stop: 7% | Take Profit: 18% | Daily Summary at market close
+Stop: 7% | Take Profit: 18%
+Telegram: Buy/Sell alerts + End of day summary only
 """
 
 import os
@@ -81,13 +82,13 @@ daily_stats = {
     "trades_today": 0,
     "buys_today": 0,
     "sells_today": 0,
-    "best_sell": None,   # (ticker, pct)
-    "worst_sell": None,  # (ticker, pct)
+    "best_sell": None,
+    "worst_sell": None,
 }
 
 
 # ─────────────────────────────────────────────
-#  TELEGRAM
+#  TELEGRAM  (only called on trades + EOD)
 # ─────────────────────────────────────────────
 def send_telegram(message: str):
     try:
@@ -107,11 +108,10 @@ def send_daily_summary():
         portfolio_val = float(acct.portfolio_value)
         cash          = float(acct.cash)
         pnl_today     = float(acct.equity) - float(acct.last_equity)
-        pnl_total     = portfolio_val - 100000  # vs starting $100k
+        pnl_total     = portfolio_val - 100000
         pnl_pct_today = (pnl_today / float(acct.last_equity)) * 100
         positions     = get_positions()
 
-        # Build open positions list
         pos_lines = ""
         for ticker, pos in positions.items():
             cost    = float(pos.avg_entry_price)
@@ -119,12 +119,11 @@ def send_daily_summary():
             pct     = (current - cost) / cost * 100
             arrow   = "📈" if pct >= 0 else "📉"
             pos_lines += f"  {arrow} {ticker}: {'+' if pct >= 0 else ''}{pct:.1f}%\n"
-
         if not pos_lines:
             pos_lines = "  No open positions\n"
 
-        best  = f"{daily_stats['best_sell'][0]} +{daily_stats['best_sell'][1]:.1f}%" if daily_stats['best_sell'] else "N/A"
-        worst = f"{daily_stats['worst_sell'][0]} {daily_stats['worst_sell'][1]:.1f}%" if daily_stats['worst_sell'] else "N/A"
+        best  = f"{daily_stats['best_sell'][0]} +{daily_stats['best_sell'][1]:.1f}%" if daily_stats["best_sell"] else "N/A"
+        worst = f"{daily_stats['worst_sell'][0]} {daily_stats['worst_sell'][1]:.1f}%" if daily_stats["worst_sell"] else "N/A"
 
         today_emoji = "📈" if pnl_today >= 0 else "📉"
         total_emoji = "📈" if pnl_total >= 0 else "📉"
@@ -138,7 +137,7 @@ def send_daily_summary():
             f"💼 <b>Portfolio:</b> ${portfolio_val:,.2f}\n"
             f"💵 <b>Cash:</b> ${cash:,.2f}\n"
             f"─────────────────────\n"
-            f"📊 <b>Today's trades:</b> {daily_stats['trades_today']} ({daily_stats['buys_today']} buys, {daily_stats['sells_today']} sells)\n"
+            f"📊 <b>Trades today:</b> {daily_stats['trades_today']} ({daily_stats['buys_today']} buys, {daily_stats['sells_today']} sells)\n"
             f"🏆 <b>Best trade:</b> {best}\n"
             f"💀 <b>Worst trade:</b> {worst}\n"
             f"─────────────────────\n"
@@ -318,13 +317,14 @@ def place_buy(signal: Signal, positions: dict):
                          side="buy", type="market", time_in_force="day")
         daily_stats["trades_today"] += 1
         daily_stats["buys_today"]   += 1
-        msg = (f"✅ <b>BUY {ticker}</b>\n"
-               f"💰 Amount: ${dollars:.2f}\n"
-               f"📊 Strategy: {signal.strategy}\n"
-               f"📝 Reason: {signal.reason}\n"
-               f"💪 Strength: {signal.strength:.0%}")
+        send_telegram(
+            f"✅ <b>BUY {ticker}</b>\n"
+            f"💰 Amount: ${dollars:.2f}\n"
+            f"📊 Strategy: {signal.strategy}\n"
+            f"📝 Reason: {signal.reason}\n"
+            f"💪 Strength: {signal.strength:.0%}"
+        )
         log.info(f"  ✅ BUY  {ticker:<6} ${dollars:>8.2f}  [{signal.strategy}]")
-        send_telegram(msg)
     except Exception as e:
         log.error(f"  ❌ BUY FAILED {ticker}: {e}")
 
@@ -338,7 +338,6 @@ def place_sell(signal: Signal, qty: str, entry_price: float = 0):
         daily_stats["trades_today"] += 1
         daily_stats["sells_today"]  += 1
 
-        # Track best/worst
         if entry_price:
             if daily_stats["best_sell"] is None or pnl_pct > daily_stats["best_sell"][1]:
                 daily_stats["best_sell"] = (signal.ticker, pnl_pct)
@@ -346,13 +345,14 @@ def place_sell(signal: Signal, qty: str, entry_price: float = 0):
                 daily_stats["worst_sell"] = (signal.ticker, pnl_pct)
 
         emoji = "🟢" if pnl_pct >= 0 else "🔴"
-        msg = (f"{emoji} <b>SELL {signal.ticker}</b>\n"
-               f"📦 Qty: {qty}\n"
-               f"📊 Strategy: {signal.strategy}\n"
-               f"📝 Reason: {signal.reason}\n"
-               f"{'📈' if pnl_pct >= 0 else '📉'} P&L: {'+' if pnl_pct >= 0 else ''}{pnl_pct:.1f}%")
+        send_telegram(
+            f"{emoji} <b>SELL {signal.ticker}</b>\n"
+            f"📦 Qty: {qty}\n"
+            f"📊 Strategy: {signal.strategy}\n"
+            f"📝 Reason: {signal.reason}\n"
+            f"{'📈' if pnl_pct >= 0 else '📉'} P&L: {'+' if pnl_pct >= 0 else ''}{pnl_pct:.1f}%"
+        )
         log.info(f"  ✅ SELL {signal.ticker:<6} qty={qty}")
-        send_telegram(msg)
     except Exception as e:
         log.error(f"  ❌ SELL FAILED {signal.ticker}: {e}")
 
@@ -383,36 +383,35 @@ def is_market_open() -> bool:
         return False
 
 
-cycle_count = 0
-summary_sent_today = False
+cycle_count    = 0
+summary_sent   = False
 
 def run_cycle():
-    global cycle_count, summary_sent_today
+    global cycle_count, summary_sent
 
-    now = datetime.now()
-    hour_et = (now.hour - 1) % 24  # Puerto Rico is ET+1 (AST, no DST)
+    now    = datetime.utcnow()
+    # Market closes 4pm ET = 20:00 UTC
+    # Send summary at 20:10 UTC (4:10pm ET / 5:10pm Puerto Rico)
+    is_eod = now.hour == 20 and now.minute == 10
 
-    # Send daily summary at 4:05pm ET (5:05pm Puerto Rico time)
-    # Market closes 4pm ET
-    if hour_et == 16 and now.minute == 5 and not summary_sent_today:
+    if is_eod and not summary_sent:
         send_daily_summary()
-        summary_sent_today = True
+        summary_sent = True
 
-    # Reset summary flag at midnight
-    if hour_et == 0 and now.minute == 0:
-        summary_sent_today = False
+    # Reset flag each morning at 13:00 UTC (9am ET)
+    if now.hour == 13 and now.minute == 0:
+        summary_sent = False
 
     if not is_market_open():
         log.info("Market closed — standing by.")
         return
 
-    # Record start of day value
     if daily_stats["start_value"] is None:
         daily_stats["start_value"] = get_portfolio_value()
 
     cycle_count += 1
     log.info("─" * 62)
-    log.info(f"CYCLE #{cycle_count}  {now.strftime('%H:%M:%S')}  scanning {len(WATCHLIST)} tickers...")
+    log.info(f"CYCLE #{cycle_count}  {now.strftime('%H:%M:%S UTC')}  scanning {len(WATCHLIST)} tickers...")
 
     positions = get_positions()
     check_exit_rules(positions)
@@ -435,40 +434,25 @@ def run_cycle():
 
     acct = get_account()
     pnl  = float(acct.equity) - float(acct.last_equity)
-    portfolio_val = float(acct.portfolio_value)
-    log.info(f"  Portfolio: ${portfolio_val:,.2f}  "
+    log.info(f"  Portfolio: ${float(acct.portfolio_value):,.2f}  "
              f"Cash: ${float(acct.cash):,.2f}  "
              f"Today P&L: {'+' if pnl >= 0 else ''}${pnl:.2f}")
-
-    # Mid-day update every 10 cycles
-    if cycle_count % 10 == 0:
-        send_telegram(
-            f"📊 <b>Nexus Bot — Live Update</b>\n"
-            f"💼 Portfolio: ${portfolio_val:,.2f}\n"
-            f"💵 Cash: ${float(acct.cash):,.2f}\n"
-            f"{'📈' if pnl >= 0 else '📉'} Today P&L: {'+' if pnl >= 0 else ''}${pnl:.2f}\n"
-            f"🔄 Trades today: {daily_stats['trades_today']}\n"
-            f"📂 Positions: {len(get_positions())}/{MAX_OPEN_POSITIONS}"
-        )
 
 
 # ─────────────────────────────────────────────
 #  ENTRY POINT
 # ─────────────────────────────────────────────
 def main():
-    log.info("🚀 Nexus Trading Bot v4 — AGGRESSIVE MODE + DAILY SUMMARY")
+    log.info("🚀 Nexus Trading Bot v5 — CLEAN NOTIFICATIONS")
     log.info(f"   Tickers   : {len(WATCHLIST)}")
     log.info(f"   Stop loss : {STOP_LOSS_PCT*100:.0f}%  |  Take profit: {TAKE_PROFIT_PCT*100:.0f}%")
-    log.info(f"   API Key   : {API_KEY[:8]}...")
+    log.info(f"   Telegram  : Buy/Sell alerts + End of day summary only")
     log.info("─" * 62)
 
     send_telegram(
-        "🚀 <b>Nexus Trading Bot v4 is LIVE!</b>\n"
-        f"📋 Watching {len(WATCHLIST)} tickers\n"
-        "⚡ Scanning every 60 seconds\n"
-        "🛑 Stop loss: 7%  |  🎯 Take profit: 18%\n"
-        "🌙 Daily summary every evening after market close\n"
-        "Let's make some money! 💰"
+        "🚀 <b>Nexus Bot v5 is LIVE!</b>\n"
+        "Notifications: trades only + end of day summary.\n"
+        "Standing by for market open... 💰"
     )
 
     run_cycle()
