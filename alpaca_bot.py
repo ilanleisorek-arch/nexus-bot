@@ -1,21 +1,10 @@
 """
-╔══════════════════════════════════════════════════════════════╗
-║           NEXUS TRADING BOT  v3  — Alpaca Paper Trading      ║
-║           100 tickers · 60s scans · Aggressive Mode          ║
-║           Stop: 7%  |  Take Profit: 18%                      ║
-║           Telegram notifications enabled                     ║
-╚══════════════════════════════════════════════════════════════╝
-
-SETUP (one-time):
-  1. Create a free account at https://alpaca.markets
-  2. Go to Paper Trading → API Keys → Generate new key
-  3. Paste your API_KEY and SECRET_KEY below
-  4. Install deps:
-       pip install alpaca-trade-api pandas numpy ta schedule requests
-  5. Run:
-       python3 alpaca_bot.py
+Nexus Trading Bot v3 — Alpaca Paper Trading
+100 tickers · 60s scans · Aggressive Mode
+Stop: 7% | Take Profit: 18% | Telegram notifications
 """
 
+import os
 import time
 import logging
 import schedule
@@ -31,13 +20,12 @@ from alpaca_trade_api.rest import TimeFrame
 import ta
 
 # ─────────────────────────────────────────────
-#  CONFIG  —  paste your keys here
+#  CONFIG — reads from Railway environment variables
 # ─────────────────────────────────────────────
-API_KEY    = "YOUR_ALPACA_API_KEY"
-SECRET_KEY = "YOUR_ALPACA_SECRET_KEY"
-BASE_URL   = "https://paper-api.alpaca.markets"
-
-TELEGRAM_TOKEN   = "YOUR_TELEGRAM_BOT_TOKEN"
+API_KEY          = os.environ.get("ALPACA_API_KEY", "")
+SECRET_KEY       = os.environ.get("ALPACA_SECRET_KEY", "")
+BASE_URL         = "https://paper-api.alpaca.markets"
+TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = "5383766592"
 
 # ─────────────────────────────────────────────
@@ -81,10 +69,7 @@ WATCHLIST = list(dict.fromkeys(WATCHLIST))[:100]
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-7s  %(message)s",
-    handlers=[
-        logging.FileHandler("nexus_bot.log"),
-        logging.StreamHandler(),
-    ]
+    handlers=[logging.StreamHandler()],
 )
 log = logging.getLogger("nexus")
 
@@ -93,7 +78,6 @@ log = logging.getLogger("nexus")
 #  TELEGRAM
 # ─────────────────────────────────────────────
 def send_telegram(message: str):
-    """Send a message to Telegram. Fails silently so bot keeps running."""
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         requests.post(url, json={
@@ -278,16 +262,12 @@ def place_buy(signal: Signal, positions: dict):
 
 def place_sell(signal: Signal, qty: str, entry_price: float = 0):
     try:
-        current = float(api.get_last_trade(signal.ticker).price) if entry_price else 0
-        pnl_pct = ((current - entry_price) / entry_price * 100) if entry_price else 0
         api.submit_order(symbol=signal.ticker, qty=qty,
                          side="sell", type="market", time_in_force="day")
-        emoji = "🟢" if pnl_pct >= 0 else "🔴"
-        msg = (f"{emoji} <b>SELL {signal.ticker}</b>\n"
+        msg = (f"{'🟢' if entry_price == 0 else '🔴'} <b>SELL {signal.ticker}</b>\n"
                f"📦 Qty: {qty}\n"
                f"📊 Strategy: {signal.strategy}\n"
-               f"📝 Reason: {signal.reason}\n"
-               f"{'📈' if pnl_pct >= 0 else '📉'} P&L: {'+' if pnl_pct >= 0 else ''}{pnl_pct:.1f}%")
+               f"📝 Reason: {signal.reason}")
         log.info(f"  ✅ SELL {signal.ticker:<6} qty={qty}")
         send_telegram(msg)
     except Exception as e:
@@ -356,10 +336,8 @@ def run_cycle():
     portfolio_val = float(acct.portfolio_value)
     log.info(f"  Portfolio: ${portfolio_val:,.2f}  "
              f"Cash: ${float(acct.cash):,.2f}  "
-             f"Today P&L: {'+' if pnl >= 0 else ''}${pnl:.2f}  "
-             f"Positions: {len(get_positions())}/{MAX_OPEN_POSITIONS}")
+             f"Today P&L: {'+' if pnl >= 0 else ''}${pnl:.2f}")
 
-    # Send a summary every 10 cycles
     if cycle_count % 10 == 0:
         send_telegram(
             f"📊 <b>Nexus Bot — Cycle #{cycle_count} Update</b>\n"
@@ -376,13 +354,12 @@ def run_cycle():
 def main():
     log.info("🚀 Nexus Trading Bot v3 — AGGRESSIVE MODE + TELEGRAM")
     log.info(f"   Tickers   : {len(WATCHLIST)}")
-    log.info(f"   Scan freq : every 60 seconds")
     log.info(f"   Stop loss : {STOP_LOSS_PCT*100:.0f}%  |  Take profit: {TAKE_PROFIT_PCT*100:.0f}%")
-    log.info(f"   Strategies: Momentum + Breakout + MeanRev + MACD")
+    log.info(f"   API Key   : {API_KEY[:8]}...")
     log.info("─" * 62)
 
     send_telegram(
-        "🚀 <b>Nexus Trading Bot v3 is LIVE!</b>\n"
+        "🚀 <b>Nexus Trading Bot v3 is LIVE on the cloud!</b>\n"
         f"📋 Watching {len(WATCHLIST)} tickers\n"
         "⚡ Scanning every 60 seconds\n"
         "🛑 Stop loss: 7%  |  🎯 Take profit: 18%\n"
